@@ -152,3 +152,23 @@ Location lookups are triggered **only when users press Find place**. Search text
 - Search for a museum and street address, choose a result, verify the map pin location and emoji/status colour. Try search with the API key disabled and confirm manual map selection still works.
 - Photo deletion from another member may leave an orphaned object in private Storage when its parent is removed; we need a server-authorized storage-cleanup workflow before relying on this as a permanent photo archive.
 - Open the app at 320px on mobile in dark mode; confirm no form overflow and that the signed-in Google flow remains unaffected.
+
+## Activity → plan → memory redesign (Nov 2026)
+
+**Database prerequisite:** Before deploying this version, run `supabase/migrations/202611050002_event_details.sql` once in the Supabase SQL Editor. The previous social/photo migration remains required. The new migration adds optional event-level dates/deadlines and visit-specific location snapshots. Existing activities, plans and memories are not deleted. Do not rerun the initial migrations.
+
+**Concept:** An activity is the enduring idea or fixed event. One activity can have several visit plans. Each completed visit becomes one memory. An event's fixed date, availability window, ticket-sale date and booking deadline are stored independently from the dates a group decides to attend. Existing undated ideas continue to work.
+
+**Using the interface:**
+- Home / header: **Add idea** or **Add event**. Both save an activity in one form, with progressive sections for basics, location, event dates, extras and selected photos. You can create an event with fixed dates without committing to a visit.
+- Open an activity from Home, Ideas, Calendar, Map or Memories to reach the same three-pane view (**Overview**, **Plans**, **Memories**). Closing it leaves your original page and filters unchanged.
+- On **Overview**, edit activity basics, suggested location, event timing, photos, private notes or sharing using labelled actions.
+- **Plans:** choose the actual visit date/location, status, booking/ticket details and optional advanced options. A proposed plan is not shown as a committed upcoming plan.
+- **Mark completed** directly from a plan; fill a memory, actual cost, your own rating and several photos together. Completed visits show in Memories. Each group member maintains an individual rating.
+- **Memories:** view or edit a completed visit's memory and photographs without navigating to a separate edit screen.
+- Edits to the suggested activity location no longer rewrite existing visits' location snapshots; the one-time SQL migration backfills them.
+- Closing an edited activity/plan/memory prompts before discarding unsaved changes, including selected photographs. Photo files and captions are staged and uploaded only after a record exists.
+
+**Calendar:** Fixed event dates appear even when no visit has been booked, labelled *event date (not a plan)*. A confirmed/planned visit on the same day suppresses the redundant fixed-event calendar marker. ICS exports include fixed event dates as tentative events and preserve visit-specific locations.
+
+**Operational checks:** Run `npm test && npm run build`, push to `main`, wait for GitHub Pages to finish, then reopen on a fresh mobile browser session. Exercise personal and group activities using separate accounts; verify owner-only ratings/favourites and photo access. SQL migrations and browser RLS tests require the actual Supabase project and cannot be validated by static code analysis alone.

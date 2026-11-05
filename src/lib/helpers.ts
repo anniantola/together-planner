@@ -51,9 +51,16 @@ export function makeICS(occurrences: Occurrence[], activities: Activity[]) {
     const lines=['BEGIN:VEVENT',`UID:${o.id}@together-planner`,`DTSTAMP:${utc(new Date().toISOString())}`,`DTSTART:${utc(o.starts_at!)}`,`SUMMARY:${sanitize(summary)}`]
     if(o.ends_at)lines.push(`DTEND:${utc(o.ends_at)}`)
     if(o.repeat_rule!=='none')lines.push(`RRULE:FREQ=${o.repeat_rule.toUpperCase()}`)
-    if(o.visibility!=='surprise'&&a?.location_label)lines.push(`LOCATION:${sanitize(a.location_label)}`)
+    if(o.visibility!=='surprise'&&o.visit_location_label)lines.push(`LOCATION:${sanitize(o.visit_location_label)}`)
     lines.push('END:VEVENT');return lines.join('\r\n')
   })
-  return ['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Together//Shared Plans//EN',...events,'END:VCALENDAR'].join('\r\n')
+  const consideredEvents=activities.filter(a=>a.event_starts_at).map(a=>{
+    if(occurrences.some(o=>o.activity_id===a.id && ['planned','confirmed'].includes(o.status) && o.starts_at && o.starts_at.slice(0,10)===a.event_starts_at!.slice(0,10)))return null
+    const lines=['BEGIN:VEVENT',`UID:event-${a.id}@together-planner`,`DTSTAMP:${utc(new Date().toISOString())}`,`DTSTART:${utc(a.event_starts_at!)}`,`SUMMARY:${sanitize('Event (not booked): '+a.title)}`, 'STATUS:TENTATIVE']
+    if(a.event_ends_at)lines.push(`DTEND:${utc(a.event_ends_at)}`)
+    if(a.location_label)lines.push(`LOCATION:${sanitize(a.location_label)}`)
+    lines.push('END:VEVENT');return lines.join('\r\n')
+  }).filter((x):x is string=>Boolean(x))
+  return ['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Together//Shared Plans//EN',...events,...consideredEvents,'END:VCALENDAR'].join('\r\n')
 }
 export function safeUrl(url:string|null|undefined) { if (!url) return undefined; try { const u=new URL(url); return ['https:','http:'].includes(u.protocol)?u.href:undefined } catch {return undefined} }

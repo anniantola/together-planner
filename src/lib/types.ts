@@ -4,7 +4,9 @@ export type Activity = {
   id: string; owner_id: string; group_id: string|null; title: string; description: string; category: string;
   tags: string[]; url: string|null; estimated_cost: number|null; duration_minutes: number|null;
   location_label: string|null; lat: number|null; lng: number|null; approximate: boolean;
-  season: string|null; weather: string|null; favorite: boolean; created_at: string; updated_at: string
+  season: string|null; weather: string|null; favorite: boolean; created_at: string; updated_at: string;
+  event_starts_at: string|null; event_ends_at: string|null; event_available_from: string|null; event_available_until: string|null;
+  event_ticket_sale_at: string|null; event_booking_deadline: string|null
 }
 export type Occurrence = {
   id: string; activity_id: string; owner_id: string; group_id: string|null;
@@ -13,7 +15,8 @@ export type Occurrence = {
   ticket_status: 'none'|'needed'|'reserved'|'purchased'; ticket_url: string|null;
   ticket_count: number|null; status: 'proposed'|'planned'|'confirmed'|'completed'|'cancelled';
   visibility: 'normal'|'surprise'; repeat_rule: 'none'|'weekly'|'monthly'|'yearly';
-  actual_cost: number|null; rating: number|null; memory: string|null; created_at: string
+  actual_cost: number|null; rating: number|null; memory: string|null; created_at: string;
+  visit_location_label: string|null; visit_lat: number|null; visit_lng: number|null
 }
 export type Vote = { activity_id: string; user_id: string; sentiment: 'love'|'maybe'|'pass' }
 export type RSVP = { occurrence_id: string; user_id: string; response: 'yes'|'maybe'|'no' }

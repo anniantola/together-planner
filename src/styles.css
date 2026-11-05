@@ -61,35 +61,48 @@
 @media (max-width:650px){.place-search-form>button{width:100%}.photo-grid{grid-template-columns:repeat(auto-fill,minmax(120px,1fr))}}
 .map-legend{margin:.2rem 0 .5rem}
 
-/* Fix Memories page on mobile */
-.year-heatmap {
-  min-width: 0;
-  overflow: hidden;
+/* Unified activity → plan → memory workflow */
+.flow-form,.activity-hub {min-width:0}
+.flow-tabs {display:flex;gap:.45rem;flex-wrap:wrap;align-items:center;padding:.35rem 0;margin:.4rem 0 .8rem;min-width:0}
+.flow-tabs button {min-width:0;flex:1 1 auto;min-height:44px;padding:.55rem .7rem;font-size:.87rem}
+.flow-tabs .active {border-color:var(--accent);box-shadow:inset 0 -3px 0 var(--accent)}
+.flow-hint,.flow-information {padding:.8rem;background:var(--surface2);border:1px solid var(--border);border-radius:11px;line-height:1.55;color:var(--text)}
+.flow-information h3{margin:0 0 .5rem}
+.flow-information p{margin:.3rem 0;font-size:.85rem}
+.form-warning {color:var(--danger);margin:.2rem 0;font-size:.85rem}
+.activity-hub h2{margin:0;font-size:1.35rem;overflow-wrap:anywhere}
+.activity-hub h3 {margin:.6rem 0 .25rem}
+.activity-hub .block {display:block;margin:.35rem 0 0}
+.activity-hub .flow-tabs {margin:.7rem 0}
+.activity-hub .row.space>div {min-width:0;flex:1}
+.hub-entry {padding:.9rem;border:1px solid var(--border);border-radius:12px;background:var(--surface2);display:grid;gap:.55rem}
+.hub-entry-body {display:grid;gap:.65rem;min-width:0;border-top:1px solid var(--border);padding-top:.85rem}
+.hub-entry-body .rating-stars {flex-wrap:wrap}
+.hub-details {border-top:1px solid var(--border);padding:.6rem 0;min-width:0}
+.hub-details summary {cursor:pointer;font-weight:700;min-height:40px;display:flex;align-items:center}
+.hub-details>button {margin:.5rem 0}
+.hub-details select {width:100%;max-width:100%;min-height:42px;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:9px;padding:.5rem}
+.top-actions {flex-wrap:wrap;justify-content:flex-end}
+@media (max-width:650px){
+ .topbar {align-items:flex-start}
+ .top-actions {max-width:200px;gap:.4rem}
+ .top-actions>.primary,.top-actions>.secondary {font-size:.72rem;padding:.45rem;min-height:38px}
+ .flow-tabs {flex-wrap:nowrap;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:thin}
+ .flow-tabs button {white-space:nowrap;flex:0 0 auto}
+ .hub-entry {padding:.75rem}
+ .activity-hub .row.space {align-items:start}
+ .flow-hint,.flow-information {font-size:.82rem}
+ .modal-footer {flex-wrap:wrap}
+ .modal-footer button {flex:1 1 120px}
+ .year-heatmap {min-width:0;overflow:hidden}
+ .heatmap-days {width:100%;min-width:0;overflow-x:auto;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch}
+ .memory-list,.memory-card,.stats,.stat {min-width:0}
+ .memory-card {overflow-wrap:anywhere}
+ .stats {grid-template-columns:repeat(2,minmax(0,1fr))}
 }
-
-.heatmap-days {
-  width: 100%;
-  min-width: 0;
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
-  -webkit-overflow-scrolling: touch;
-}
-
-.memory-list,
-.memory-card {
-  min-width: 0;
-}
-
-.memory-card {
-  overflow-wrap: anywhere;
-}
-
-@media (max-width: 650px) {
-  .stats {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .stat {
-    min-width: 0;
-  }
-}
+.cal-event.event {border-left-color:var(--accent);border-left-style:dashed;opacity:.95}
+.cal-more {border:0;background:transparent;color:var(--accent);text-decoration:underline;font-size:.7rem;text-align:left;padding:.2rem}
+.photo-placeholder {aspect-ratio:1;min-height:90px;display:grid;place-items:center;border-radius:10px;background:var(--surface2);color:var(--muted);font-size:2rem}
+.photo-grid.compact-photos .photo-placeholder {height:140px;aspect-ratio:auto}
+/* Keep validation and upload errors visible above an open editor. */
+.alert {position:fixed;z-index:6100;top:max(.7rem,env(safe-area-inset-top));left:50%;transform:translateX(-50%);width:min(580px,calc(100vw - 1.2rem));box-shadow:0 8px 28px #0006}
