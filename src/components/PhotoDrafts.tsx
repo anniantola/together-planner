@@ -20,7 +20,7 @@ export default function PhotoDrafts({photos,onChange,disabled=false}: {photos:Ph
   }
   onChange(next);setProblem(failures.join(' · '))
  }
- return <div className="photo-uploader"><label className="field"><span>Add photographs (up to 20 at once)</span><input type="file" multiple accept="image/jpeg,image/png,image/webp,image/gif" disabled={disabled} onChange={e=>{add(e.target.files);e.target.value=''}}/></label>
+ return <div className="photo-uploader"><label className="field"><span>Add photographs (up to 20 at once)</span><input type="file" multiple accept="image/jpeg,image/png,image/webp" disabled={disabled} onChange={e=>{add(e.target.files);e.target.value=''}}/></label>
   {problem&&<p className="form-warning" role="alert">{problem}</p>}
   {photos.length>0&&<div className="pending-photos">{photos.map((p,i)=><div className="pending-photo" key={p.id}><Thumb file={p.file}/><label className="field"><span>Caption {i+1}</span><input value={p.caption} maxLength={300} disabled={disabled} onChange={e=>onChange(photos.map(x=>x.id===p.id?{...x,caption:e.target.value}:x))}/></label><button type="button" className="ghost compact" disabled={disabled} onClick={()=>onChange(photos.filter(x=>x.id!==p.id))}>Remove photo</button></div>)}</div>}
  </div>

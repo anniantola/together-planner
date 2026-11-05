@@ -14,6 +14,10 @@ import PhotoDrafts from './components/PhotoDrafts'
 import type { PhotoDraft } from './components/PhotoDrafts'
 import { draftChanged, isScheduled, planDatesFromEvent, validateActivityDates, validatePlanDates } from './lib/flow'
 import { checkImage } from './lib/photo-utils'
+import { preparePrivatePhoto } from './lib/image-privacy'
+import { buildZip } from './lib/backup-zip'
+import type { ZipFile } from './lib/backup-zip'
+import { canApplyAccountResponse, scopeStorageKey, readVisibleScopes } from './lib/auth-isolation'
 import { PAGES, restorePage, persistPage, clearPage } from './lib/page-navigation'
 import type { Page } from './lib/page-navigation'
 import { useInstallApp } from './hooks/useInstallApp'
@@ -57,12 +61,13 @@ function goUrl(url?:string|null) {const u=safeUrl(url); if(u)window.open(u,'_bla
 
 export default function App() {
  const [scopeLoaded,setScopeLoaded]=useState(false)
+ const [loadedAccountId,setLoadedAccountId]=useState<string|null>(null)
  const {installed,canPromptInstall,install,installError,isIOS,isAndroid}=useInstallApp()
  const [user,setUser]=useState<User|null>(null),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('')
  const [groups,setGroups]=useState<Group[]>([]),[members,setMembers]=useState<Membership[]>([]),[activities,setActivities]=useState<Activity[]>([]),[occurrences,setOccurrences]=useState<Occurrence[]>([]),[votes,setVotes]=useState<Vote[]>([]),[rsvps,setRsvps]=useState<RSVP[]>([]),[photos,setPhotos]=useState<Photo[]>([]),[secrets,setSecrets]=useState<Secret[]>([])
  const [ideaPhotos,setIdeaPhotos]=useState<IdeaPhoto[]>([]),[personalFavorites,setPersonalFavorites]=useState<PersonalFavorite[]>([]),[ratings,setRatings]=useState<ExperienceRating[]>([])
  const [onlyFavorites,setOnlyFavorites]=useState(false),[mapFocus,setMapFocus]=useState<PlaceResult|null>(null)
- const [tab,setTab]=useState<Tab>(()=>restorePage(window.localStorage)),[scope,setScope]=useState<string>('all'),[visibleScopes,setVisibleScopes]=useState<string[]>(()=>{try {return JSON.parse(localStorage.getItem('together-scopes')||'["personal"]')}catch{return ['personal']}})
+ const [tab,setTab]=useState<Tab>(()=>restorePage(window.localStorage)),[scope,setScope]=useState<string>('all'),[visibleScopes,setVisibleScopes]=useState<string[]>(['personal'])
  const [idea,setIdea]=useState<Editable|null>(null),[event,setEvent]=useState<Partial<Occurrence>|null>(null),[eventActivity,setEventActivity]=useState<string>(''),[detail,setDetail]=useState<Activity|null>(null),[selectedOccurrence,setSelectedOccurrence]=useState<Occurrence|null>(null)
  const [hubPane,setHubPane]=useState<'overview'|'plans'|'memories'>('overview')
  const [ideaSection,setIdeaSection]=useState<'basics'|'location'|'event'|'extras'|'photos'>('basics'),[creationKind,setCreationKind]=useState<'idea'|'event'>('idea')
@@ -75,18 +80,44 @@ export default function App() {
  const [profiles,setProfiles]=useState<{id:string;display_name:string}[]>([])
  const [jarOpen,setJarOpen]=useState(false),[jarBudget,setJarBudget]=useState(''),[jarDuration,setJarDuration]=useState(''),[jarWeather,setJarWeather]=useState('Any'),[jarUntried,setJarUntried]=useState(true)
  const [notes,setNotes]=useState<{activity_id:string;user_id:string;note:string}[]>([])
+ const [backupProgress,setBackupProgress]=useState('')
  const [noteDraft,setNoteDraft]=useState('')
  const [groupModal,setGroupModal]=useState(false),[inviteModal,setInviteModal]=useState(false),[joinCode,setJoinCode]=useState(''),[inviteCode,setInviteCode]=useState(''),[calendarCenter,setCalendarCenter]=useState(new Date()),[calendarView,setCalendarView]=useState<'month'|'week'|'agenda'>('month')
  const [newPassword,setNewPassword]=useState('')
  const [categoryFilter,setCategoryFilter]=useState('All'),[search,setSearch]=useState(''),[mapStatus,setMapStatus]=useState('all'),[showScopes,setShowScopes]=useState(false),[personalName,setPersonalName]=useState(''),[dark,setDark]=useState(()=>localStorage.getItem('together-theme')!=='light'),[notifications,setNotifications]=useState(false)
  useEffect(()=>{document.documentElement.dataset.theme=dark?'dark':'light';localStorage.setItem('together-theme',dark?'dark':'light')},[dark])
  useEffect(()=>persistPage(window.localStorage,tab),[tab])
- useEffect(()=>{if(scopeLoaded)localStorage.setItem('together-scopes',JSON.stringify(visibleScopes))},[visibleScopes,scopeLoaded])
+ const activeUserIdRef=useRef<string|null>(null)
+ const sessionEpochRef=useRef(0)
+ const fetchSerialRef=useRef(0)
+ const scopeInit=useRef(false)
+ useEffect(()=>{if(scopeLoaded&&user&&activeUserIdRef.current===user.id)localStorage.setItem(scopeStorageKey(user.id),JSON.stringify(visibleScopes))},[visibleScopes,scopeLoaded,user])
+ function setAuthenticatedUser(next:User|null){
+  const nextId=next?.id||null
+  if(nextId!==activeUserIdRef.current){
+   activeUserIdRef.current=nextId;sessionEpochRef.current++;fetchSerialRef.current++
+   setLoadedAccountId(null);setLoading(Boolean(nextId))
+   // Clear EVERY account-derived view, photo path and edit draft before showing another user.
+   setGroups([]);setMembers([]);setActivities([]);setOccurrences([]);setVotes([]);setRsvps([]);setPhotos([]);setSecrets([])
+   setIdeaPhotos([]);setPersonalFavorites([]);setRatings([]);setTicketClaims([]);setInvitations([]);setProfiles([]);setNotes([])
+   setDetail(null);setSelectedOccurrence(null);setIdea(null);setEvent(null);setCompleting(null)
+   setIdeaOriginal(null);setPendingIdeaPhotos([]);setEventOriginal(null);setEventSecret(null);setEventSecretOriginal(null)
+   setNoteDraft('');setPersonalName('');setNewPassword('');setJoinCode('');setInviteCode('');setError('');setNotice('')
+   setGroupModal(false);setInviteModal(false);setJarOpen(false);setMapFocus(null);setShowScopes(false)
+   setBusy(false);setBackupProgress('');setScope('all');setScopeLoaded(false);setVisibleScopes(['personal']);scopeInit.current=false
+   setNotifications(false)
+  }
+  setUser(next)
+ }
  const fetchData=useCallback(async()=>{
-   if(!user)return
+   if(!user || activeUserIdRef.current!==user.id)return
+   const requestUserId=user.id,requestEpoch=sessionEpochRef.current,requestSerial=++fetchSerialRef.current
    const requests=await Promise.all([
      supabase.from('groups').select('*').order('created_at'),supabase.from('memberships').select('*'),supabase.from('activities').select('*').order('created_at',{ascending:false}),supabase.from('occurrences').select('*').order('created_at',{ascending:false}),supabase.from('votes').select('*'),supabase.from('rsvps').select('*'),supabase.from('photos').select('*'),supabase.from('surprise_details').select('*'),supabase.from('profiles').select('*').eq('id',user.id).maybeSingle(),supabase.from('personal_notes').select('*'),supabase.from('profiles').select('id,display_name'),supabase.from('ticket_claims').select('*'),supabase.from('invitations').select('*'),supabase.from('idea_photos').select('*'),supabase.from('activity_favorites').select('*'),supabase.from('experience_ratings').select('*')
    ])
+   // A refresh can finish after sign-out or a different account has signed in.
+   if(!canApplyAccountResponse(activeUserIdRef.current,requestUserId,sessionEpochRef.current,requestEpoch)
+      || requestSerial!==fetchSerialRef.current)return
    for(const r of requests) assertOk(r.error)
    setGroups((requests[0].data||[]) as Group[]);setMembers((requests[1].data||[]) as Membership[])
    setActivities((requests[2].data||[]) as Activity[]);setOccurrences((requests[3].data||[]) as Occurrence[])
@@ -94,13 +125,45 @@ export default function App() {
    setVotes((requests[4].data||[]) as Vote[]);setRsvps((requests[5].data||[]) as RSVP[])
    setPhotos((requests[6].data||[]) as Photo[]);setSecrets((requests[7].data||[]) as Secret[])
    setPersonalName((requests[8].data as {display_name?:string}|null)?.display_name||'');setNotes(requests[9].data||[]);setProfiles(requests[10].data||[]);setTicketClaims(requests[11].data||[]);setInvitations(requests[12].data||[]);setIdeaPhotos((requests[13].data||[]) as IdeaPhoto[]);setPersonalFavorites((requests[14].data||[]) as PersonalFavorite[]);setRatings((requests[15].data||[]) as ExperienceRating[])
+   setLoadedAccountId(requestUserId)
  },[user])
- useEffect(()=>{supabase.auth.getUser().then(({data})=>{setUser(data.user);setLoading(false)}).catch(e=>{setError(errmsg(e));setLoading(false)});const {data:{subscription}}=supabase.auth.onAuthStateChange((event,s)=>{setUser(s?.user||null);if(event==='SIGNED_OUT'){setTab('Home');clearPage(window.localStorage)}if(event==='PASSWORD_RECOVERY'){setTab('Settings');setNotice('Password recovery verified. Set a new password in Settings.')}});return()=>subscription.unsubscribe()},[])
- useEffect(()=>{if(!user)return;let alive=true;setLoading(true);fetchData().catch(e=>{if(alive)setError(errmsg(e))}).finally(()=>{if(alive)setLoading(false)});return()=>{alive=false}},[user,fetchData])
+ useEffect(()=>{
+  let active=true,receivedAuthEvent=false
+  const {data:{subscription}}=supabase.auth.onAuthStateChange((event,s)=>{
+   if(!active)return
+   receivedAuthEvent=true
+   setAuthenticatedUser(s?.user||null)
+   if(!s?.user)setLoading(false)
+   if(event==='SIGNED_OUT'){setTab('Home');clearPage(window.localStorage)}
+   if(event==='PASSWORD_RECOVERY'){setTab('Settings');setNotice('Password recovery verified. Set a new password in Settings.')}
+  })
+  void supabase.auth.getUser().then(({data,error:e})=>{
+   if(!active||receivedAuthEvent)return
+   assertOk(e);setAuthenticatedUser(data.user);if(!data.user)setLoading(false)
+  }).catch(e=>{if(active&&!receivedAuthEvent){setError(errmsg(e));setLoading(false)}})
+  return()=>{active=false;subscription.unsubscribe()}
+ },[])
+ useEffect(()=>{
+  if(!user)return
+  let alive=true;const accountId=user.id
+  setLoading(true)
+  void fetchData().catch(e=>{if(alive&&activeUserIdRef.current===accountId)setError(errmsg(e))}).finally(()=>{if(alive&&activeUserIdRef.current===accountId)setLoading(false)})
+  return()=>{alive=false}
+ },[user,fetchData])
  useEffect(()=>{if(!user)return;const channel=supabase.channel('together-updates').on('postgres_changes',{event:'*',schema:'public',table:'activities'},()=>void fetchData()).on('postgres_changes',{event:'*',schema:'public',table:'occurrences'},()=>void fetchData()).on('postgres_changes',{event:'*',schema:'public',table:'votes'},()=>void fetchData()).on('postgres_changes',{event:'*',schema:'public',table:'rsvps'},()=>void fetchData()).on('postgres_changes',{event:'*',schema:'public',table:'idea_photos'},()=>void fetchData()).on('postgres_changes',{event:'*',schema:'public',table:'activity_favorites'},()=>void fetchData()).on('postgres_changes',{event:'*',schema:'public',table:'experience_ratings'},()=>void fetchData()).on('postgres_changes',{event:'*',schema:'public',table:'photos'},()=>void fetchData()).subscribe();return()=>{void supabase.removeChannel(channel)}},[user,fetchData])
- const scopeInit=useRef(false)
- useEffect(()=>{if(!user||loading||scopeInit.current)return;scopeInit.current=true;const saved=localStorage.getItem('together-scopes');if(!saved)setVisibleScopes(['personal',...groups.map(g=>g.id)]);setScopeLoaded(true)},[user,loading,groups])
- async function act(task:()=>Promise<void>){setBusy(true);setError('');setNotice('');try{await task();await fetchData()}catch(e){setError(errmsg(e))}finally{setBusy(false)}}
+ useEffect(()=>{
+  if(!user||loading||scopeInit.current||activeUserIdRef.current!==user.id||loadedAccountId!==user.id)return
+  scopeInit.current=true
+  setVisibleScopes(readVisibleScopes(localStorage,scopeStorageKey(user.id),groups.map(g=>g.id)))
+  setScopeLoaded(true)
+ },[user,loading,groups,loadedAccountId])
+ async function act(task:()=>Promise<void>){
+  const accountId=activeUserIdRef.current,epoch=sessionEpochRef.current
+  setBusy(true);setError('');setNotice('')
+  try{await task();if(canApplyAccountResponse(activeUserIdRef.current,accountId||'',sessionEpochRef.current,epoch))await fetchData()}
+  catch(e){if(canApplyAccountResponse(activeUserIdRef.current,accountId||'',sessionEpochRef.current,epoch))setError(errmsg(e))}
+  finally{if(canApplyAccountResponse(activeUserIdRef.current,accountId||'',sessionEpochRef.current,epoch))setBusy(false)}
+ }
  function isVisible(groupId:string|null,view:'calendar'|'list'='list') {return view==='calendar'?visibleScopes.includes(groupId||'personal'):scope==='all'||(scope==='personal'?groupId===null:groupId===scope)}
  const scopedActivities=activities.filter(a=>isVisible(a.group_id))
  const visibleActivities=activities.filter(a=>isVisible(a.group_id,'calendar'))
@@ -157,6 +220,7 @@ export default function App() {
  }
  function closePlan(){if(busy)return;if((draftChanged(event,eventOriginal)||eventActivity!==eventActivityOriginal||draftChanged(eventSecret,eventSecretOriginal))&&!confirm('Discard unsaved plan changes?'))return;setEvent(null);setEventSecret(null)}
  function openDetail(a:Activity,pane:'overview'|'plans'|'memories'='overview',occurrence?:Occurrence) {
+  if(user?.id!==activeUserIdRef.current)return
   if(detail?.id!==a.id)setNoteDraft(notes.find(n=>n.activity_id===a.id&&n.user_id===user?.id)?.note||'')
   setDetail(a);setHubPane(pane);setSelectedOccurrence(occurrence||null)
  }
@@ -177,6 +241,7 @@ export default function App() {
   // Persist the record first so selected photos can be uploaded to its private bucket path.
   const failures:string[]=[]
   for(const photo of pendingIdeaPhotos){try{await uploadMedia('idea',savedId!,photo.file,photo.caption)}catch(ex){failures.push(`${photo.file.name}: ${errmsg(ex)}`)}}
+  if(activeUserIdRef.current!==user.id)return
   setIdea(null);setPendingIdeaPhotos([])
   openDetail({...idea,id:savedId!} as Activity,'overview')
   setNotice(failures.length?`Activity saved, but ${failures.length} photo(s) failed: ${failures.join(' · ')}`:'Activity saved. Open Plans to schedule a visit.')
@@ -184,12 +249,13 @@ export default function App() {
  async function saveOccurrence(e:FormEvent){e.preventDefault();if(!user||!eventActivity||!event)return;await act(async()=>{
   const {id,activity_id,created_at,owner_id,group_id,...fields}=event;void activity_id;void created_at;void owner_id;void group_id
   validatePlanDates(fields)
-  if(fields.visibility==='surprise'){fields.title_override=null;fields.memory=null;fields.rating=null;fields.actual_cost=null;fields.ticket_url=null}
+  if(fields.visibility==='surprise'){fields.title_override=null;fields.memory=null;fields.rating=null;fields.actual_cost=null;fields.ticket_url=null;fields.visit_location_label=null;fields.visit_lat=null;fields.visit_lng=null}
   const payload={...fields,activity_id:eventActivity};delete payload.rating
   let savedId=id
   if(id)assertOk((await supabase.from('occurrences').update(payload).eq('id',id)).error)
   else {const result=await supabase.from('occurrences').insert(payload).select('id').single();assertOk(result.error);savedId=result.data!.id}
   if(fields.visibility==='surprise'&&savedId&&eventSecret){assertOk((await supabase.from('surprise_details').upsert({occurrence_id:savedId,creator_id:user.id,true_title:eventSecret.title,details:eventSecret.details})).error)}
+  if(activeUserIdRef.current!==user.id)return
   setEvent(null);setEventSecret(null)
   const a=byId.get(eventActivity)
   if(a)openDetail(a,fields.status==='completed'?'memories':'plans')
@@ -205,6 +271,7 @@ export default function App() {
   else assertOk((await supabase.from('experience_ratings').upsert({occurrence_id:o.id,user_id:user.id,rating,updated_at:new Date().toISOString()})).error)
   const failures:string[]=[]
   for(const photo of files){try{await uploadMedia('memory',o.id,photo.file,photo.caption)}catch(ex){failures.push(`${photo.file.name}: ${errmsg(ex)}`)}}
+  if(activeUserIdRef.current!==user.id)return
   setCompleting(null);setHubPane('memories');setSelectedOccurrence({...o,status:'completed',memory:memory.trim()||null,actual_cost:cost===''?null:Number(cost),starts_at:visitedAt})
   setNotice(failures.length?`Memory saved, but ${failures.length} photo(s) failed: ${failures.join(' · ')}`:'Memory saved. You can return to edit it anytime.')
  })}
@@ -235,7 +302,10 @@ export default function App() {
   if(!user)throw new Error('Sign in first')
   const invalid=checkImage(file);if(invalid)throw new Error(invalid)
   const id=uid(),path=kind==='idea'?`ideas/${parentId}/${user.id}/${id}`:`${parentId}/${user.id}/${id}`
-  const result=await supabase.storage.from('memories').upload(path,file,{contentType:file.type,upsert:false});assertOk(result.error)
+  // Browser canvas decoding/re-encoding strips EXIF GPS, camera details and text metadata.
+  const safeFile=await preparePrivatePhoto(file)
+  if(activeUserIdRef.current!==user.id)throw new Error('Account changed during upload')
+  const result=await supabase.storage.from('memories').upload(path,safeFile,{contentType:safeFile.type,upsert:false});assertOk(result.error)
   const db=kind==='idea'
    ?await supabase.from('idea_photos').insert({id,activity_id:parentId,uploaded_by:user.id,path,caption:caption||null})
    :await supabase.from('photos').insert({id,occurrence_id:parentId,uploaded_by:user.id,path,caption:caption||null})
@@ -251,12 +321,45 @@ export default function App() {
  async function createGroup(name:string,kind:Group['kind']){if(!user)return;await act(async()=>{assertOk((await supabase.from('groups').insert({name,kind,owner_id:user.id})).error);setGroupModal(false);setNotice('Group created')})}
  async function invite(g:Group){if(!user)return;await act(async()=>{
   const code=Array.from(crypto.getRandomValues(new Uint8Array(24)),n=>n.toString(16).padStart(2,'0')).join('')
-  assertOk((await supabase.from('invitations').insert({group_id:g.id,created_by:user.id,code})).error);setInviteCode(code);setInviteModal(true)
+  assertOk((await supabase.from('invitations').insert({group_id:g.id,created_by:user.id,code})).error);if(activeUserIdRef.current!==user.id)return;setInviteCode(code);setInviteModal(true)
  })}
  async function join(){await act(async()=>{const code=joinCode.trim();const {error:e}=await supabase.rpc('accept_invitation',{invite_code:code});assertOk(e);setJoinCode('');setNotice('You joined the group')})}
  async function removeMember(g:Group,m:Membership){if(!confirm('Remove this member from the group?'))return;await act(async()=>{assertOk((await supabase.from('memberships').delete().eq('group_id',g.id).eq('user_id',m.user_id)).error)})}
  async function saveProfile(){if(!user)return;await act(async()=>{assertOk((await supabase.from('profiles').update({display_name:personalName.trim()||'Someone'}).eq('id',user.id)).error);setNotice('Profile updated')})}
- function exportData(){download('together-backup-'+format(new Date(),'yyyy-MM-dd')+'.json',JSON.stringify({exportedAt:new Date().toISOString(),version:1,groups,activities,occurrences,votes,rsvps,photos:photos.map(p=>({...p,note:'Photo files are not included in JSON backup'})),personal_notes:notes,secrets,personal_favorites:personalFavorites,experience_ratings:ratings,idea_photos:ideaPhotos.map(p=>({...p,note:'Photo files not included'}))},null,2))}
+ function backupRecords(){return {exportedAt:new Date().toISOString(),version:2,groups,activities,occurrences,votes,rsvps,photos,personal_notes:notes,secrets,personal_favorites:personalFavorites,experience_ratings:ratings,idea_photos:ideaPhotos}}
+ function exportData(){if(confirm('This JSON contains your private notes, group information and surprise details. Keep it private. Photos are NOT included. Continue?'))download('together-records-'+format(new Date(),'yyyy-MM-dd')+'.json',JSON.stringify(backupRecords(),null,2))}
+ async function exportFullBackup(){
+  if(!user||busy)return
+  if(!confirm('Create a complete ZIP containing your accessible private and shared records, original photo files and surprise details? Store it securely and never share publicly.'))return
+  const accountId=user.id,all=[...photos.map(p=>({path:p.path,folder:'memories',id:p.id})),...ideaPhotos.map(p=>({path:p.path,folder:'ideas',id:p.id}))]
+  const files:ZipFile[]=[{path:'together-records.json',data:new TextEncoder().encode(JSON.stringify(backupRecords(),null,2))}]
+  let total=files[0].data.byteLength
+  setBusy(true);setBackupProgress(`Preparing ${all.length} photos…`);setError('')
+  try{
+   for(let i=0;i<all.length;i++){
+    if(activeUserIdRef.current!==accountId)throw new Error('Account changed; backup cancelled')
+    const item=all[i]
+    const {data,error:e}=await supabase.storage.from('memories').download(item.path)
+    assertOk(e)
+    if(!data)throw new Error(`Cannot retrieve photo ${i+1}`)
+    const mime=data.type||''
+    const extension=mime.includes('jpeg')?'jpg':mime.includes('png')?'png':mime.includes('webp')?'webp':mime.includes('gif')?'gif':'bin'
+    const bytes=new Uint8Array(await data.arrayBuffer())
+    total+=bytes.byteLength+1000
+    if(total>300*1024*1024)throw new Error('This library exceeds 300 MB. Download individual photos or make a backup from a desktop in smaller batches.')
+    files.push({path:`photos/${item.folder}/${item.id}.${extension}`,data:bytes})
+    setBackupProgress(`Backing up photo ${i+1} / ${all.length}`)
+   }
+   if(activeUserIdRef.current!==accountId)throw new Error('Account changed; backup cancelled')
+   const zip=buildZip(files)
+   const buffer=new ArrayBuffer(zip.byteLength);new Uint8Array(buffer).set(zip)
+   const objectUrl=URL.createObjectURL(new Blob([buffer],{type:'application/zip'}))
+   const link=document.createElement('a');link.href=objectUrl;link.download=`together-full-backup-${format(new Date(),'yyyy-MM-dd')}.zip`
+   document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(objectUrl),60_000)
+   setNotice(`Full backup ready: records and ${all.length} photo(s). Keep the ZIP private.`)
+  }catch(e){if(activeUserIdRef.current===accountId)setError('Backup could not finish: '+errmsg(e))}
+  finally{if(activeUserIdRef.current===accountId){setBusy(false);setBackupProgress('')}}
+ }
  async function importPersonal(file:File){await act(async()=>{if(!user)return;const raw=JSON.parse(await file.text());if(!Array.isArray(raw.activities))throw new Error('Not a Together backup');let count=0;for(const a of raw.activities.slice(0,500)){
   if(!a||typeof a!=='object'||typeof a.title!=='string'||!a.title.trim())continue
   const payload={owner_id:user.id,group_id:null,title:a.title.slice(0,180),description:String(a.description||''),category:String(a.category||'Other'),tags:Array.isArray(a.tags)?a.tags.filter((t:unknown)=>typeof t==='string').slice(0,30):[],url:safeUrl(a.url)||null,estimated_cost:typeof a.estimated_cost==='number'?a.estimated_cost:null,duration_minutes:Number.isInteger(a.duration_minutes)?a.duration_minutes:null,location_label:typeof a.location_label==='string'?a.location_label:null,lat:typeof a.lat==='number'?a.lat:null,lng:typeof a.lng==='number'?a.lng:null,approximate:Boolean(a.approximate),season:typeof a.season==='string'?a.season:null,weather:typeof a.weather==='string'?a.weather:null,favorite:false}
@@ -265,7 +368,7 @@ export default function App() {
   if(wasFavorite)assertOk((await supabase.from('activity_favorites').insert({activity_id:inserted.data!.id,user_id:user.id})).error)
   count++
  }setNotice(`Imported ${count} ideas to My Space. Shared data and private notes were not imported.`)})}
- async function extractURL(url:string){if(!safeUrl(url)){setError('Please use a valid http(s) link');return}setBusy(true);setError('');try{const {data,error:e}=await supabase.functions.invoke('import-event',{body:{url}});assertOk(e);if(data?.error)throw new Error(data.error);setIdea(p=>p?{...p,title:p.title||data.title||'',description:p.description||data.description||'',location_label:p.location_label||data.location||null,url}:p);setNotice('Website details suggested. Check them before saving.')}catch(e){setError('Could not extract this website: '+errmsg(e))}finally{setBusy(false)}}
+ async function extractURL(url:string){if(!safeUrl(url)){setError('Please use a valid http(s) link');return}const accountId=user?.id;setBusy(true);setError('');try{const {data,error:e}=await supabase.functions.invoke('import-event',{body:{url}});assertOk(e);if(data?.error)throw new Error(data.error);if(activeUserIdRef.current!==accountId)return;setIdea(p=>p?{...p,title:p.title||data.title||'',description:p.description||data.description||'',location_label:p.location_label||data.location||null,url}:p);setNotice('Website details suggested. Check them before saving.')}catch(e){setError('Could not extract this website: '+errmsg(e))}finally{setBusy(false)}}
  const searchActivities=scopedActivities.filter(a=>(!onlyFavorites||isFavorite(a))&&(categoryFilter==='All'||a.category===categoryFilter)&&`${a.title} ${a.description} ${a.tags.join(' ')}`.toLowerCase().includes(search.toLowerCase()))
  const mapActivities=visibleActivities.filter(a=>mapStatus==='all'||(mapStatus==='favourites'?isFavorite(a):mapStatus==='completed'?occurrences.some(o=>o.activity_id===a.id&&o.status==='completed'):mapStatus==='upcoming'?occurrences.some(o=>o.activity_id===a.id&&o.starts_at&&isScheduled(o.status)):!occurrences.some(o=>o.activity_id===a.id)))
  function surpriseSafe(o:Occurrence){return o.visibility==='surprise'&&!secrets.some(s=>s.occurrence_id===o.id)}
@@ -280,7 +383,7 @@ export default function App() {
  ].sort((a,b)=>Date.parse(a.at)-Date.parse(b.at))
  function openCalendarItem(i:typeof calendarItems[number]){if(i.occurrence)openOccurrence(i.occurrence);else if(i.activity)openDetail(i.activity)}
  if(!configured)return <div className="setup"><Heart size={36}/><h1>Together</h1><p>The app is ready to connect to your private Supabase project.</p><p>Set <code>VITE_SUPABASE_URL</code> and <code>VITE_SUPABASE_ANON_KEY</code> in your GitHub repository variables or local <code>.env.local</code>. Follow README.md for database setup.</p></div>
- if(loading&&!user)return <div className="setup">Loading Together…</div>
+ if(loading)return <div className="setup">Loading Together…</div>
  if(!user)return <Auth/>
  return <div className="app"><aside className="sidebar"><div className="brand"><Heart size={25} fill="currentColor"/><div><b>Together</b><small>Make time for memories</small></div></div><nav aria-label="Main navigation">{tabs.map(t=>{const Icon=icon[t];return <button key={t} className={'nav-item '+(tab===t?'active':'')} onClick={()=>setTab(t)}><Icon size={20}/><span>{t}</span></button>})}</nav><div className="side-bottom"><span>Private by default</span><LockKeyhole size={16}/></div></aside>
  <div className="main"><header className="topbar"><div><div className="eyebrow">YOUR SHARED WORLD</div><h1>{tab}</h1></div><div className="top-actions">{canPromptInstall&&<button className="icon-button" title="Install Together" aria-label="Install Together" onClick={()=>void install()}><Download size={18}/></button>}<button className="icon-button" title="Select visible groups" onClick={()=>setShowScopes(!showScopes)}><Menu/></button><button className="primary" onClick={()=>startIdea({...BLANK_IDEA,group_id:scope==='all'||scope==='personal'?null:scope})}><Plus size={18}/> Add idea</button><button className="secondary" onClick={()=>startIdea({...BLANK_IDEA,group_id:scope==='all'||scope==='personal'?null:scope},'event','event')}><CalendarDays size={17}/> Add event</button></div></header>
@@ -300,7 +403,7 @@ export default function App() {
  {tab==='Map'&&<section className="page"><div className="toolbar"><select value={mapStatus} onChange={e=>setMapStatus(e.target.value)} aria-label="Map activity status"><option value="all">All locations</option><option value="ideas">Ideas only</option><option value="upcoming">Planned</option><option value="completed">Visited</option><option value="favourites">⭐ My favourites</option></select><Key>{mapActivities.filter(a=>a.lat!==null&&a.lng!==null).length} pinned places</Key></div><div className="map-space-filters"><strong className="muted">Show spaces on map</strong><div className="row wrap scopes" role="group" aria-label="Map visible spaces">{scopeOptions.map(s=><label className="toggle" key={s.id}><input type="checkbox" checked={visibleScopes.includes(s.id)} onChange={()=>setVisibleScopes(p=>p.includes(s.id)?p.filter(x=>x!==s.id):[...p,s.id])}/>{s.label}</label>)}</div><button className="ghost compact" onClick={()=>setVisibleScopes(scopeOptions.map(s=>s.id))}>Show all spaces</button></div><div className="row wrap map-legend"><Key>💡 Gold · Idea</Key><Key>📅 Blue · Planned</Key><Key>✅ Green · Visited</Key><Key>📍 Pink · Search result</Key></div><PlaceSearch onSelect={setMapFocus}/>{mapFocus&&<div className="row wrap"><span className="muted">📍 {mapFocus.label}</span><button className="primary compact" onClick={()=>startIdea({...BLANK_IDEA,location_label:mapFocus.label,lat:mapFocus.lat,lng:mapFocus.lng})}>Save this place as an idea</button><button className="ghost compact" onClick={()=>setMapFocus(null)}>Clear</button></div>}<ActivityMap activities={mapActivities} occurrences={visibleOccurrences} onSelect={openDetail} selected={mapFocus?[mapFocus.lat,mapFocus.lng]:null}/><p className="muted">Click a place to open its activity. Add locations by choosing a point on the map when editing an idea. No home coordinates are required.</p></section>}
  {tab==='Memories'&&<section className="page"><div className="toolbar"><h2 className="grow">Your story so far</h2><Key>{completed.length} experiences</Key><Key>{completed.reduce((sum,o)=>sum+(o.actual_cost||0),0).toFixed(2)} € spent</Key></div><div className="stats"><div className="stat"><strong>{completed.length}</strong><span>Experiences</span></div><div className="stat"><strong>{new Set(completed.map(o=>o.visit_location_label).filter(Boolean)).size}</strong><span>Places visited</span></div><div className="stat"><strong>{completed.filter(o=>Number(meanRating(o))===5).length}</strong><span>5-star memories</span></div><div className="stat"><strong>{new Set(completed.map(o=>o.starts_at?.slice(0,7))).size}</strong><span>Active months</span></div></div><div className="year-heatmap"><h3>This year’s experiences</h3><div className="heatmap-days">{Array.from({length:365+Number(new Date(new Date().getFullYear(),1,29).getMonth()===1)},(_,i)=>{const day=new Date(new Date().getFullYear(),0,i+1);const n=completed.filter(o=>o.starts_at&&isSameDay(new Date(o.starts_at),day)).length;return <span className={n?'filled':''} title={`${format(day,'d MMM')}: ${n} activities`} key={i} style={{opacity:n?Math.min(1,.45+n*.2):1}}/>})}</div></div><div className="memory-list">{completed.map(o=><article className="memory-card" key={o.id}><span className="eyebrow">{when(o.starts_at)}</span><h3>{activityName(o)}</h3>{o.visit_location_label&&<small>📍 {o.visit_location_label}</small>}<p>{surpriseSafe(o)?'Surprise activity':o.memory||'Add a photo or write what made this special.'}</p><div className="row wrap">{meanRating(o)&&<span aria-label="Average rating">⭐ {meanRating(o)} ({experienceRatings(o).length})</span>}<Key>{byId.get(o.activity_id)?.category||'Experience'}</Key><button className="secondary compact" onClick={()=>openOccurrence(o)}>Open memory</button></div><PhotoStrip photos={photos.filter(p=>p.occurrence_id===o.id)}/></article>)}</div>{completed.length===0&&<p className="empty">Completed activities become memories you can revisit here.</p>}</section>}
  {tab==='Groups'&&<section className="page"><div className="row wrap"><button className="primary" onClick={()=>setGroupModal(true)}><Plus size={17}/> Create group</button><input placeholder="Paste invitation code" aria-label="Invitation code" value={joinCode} onChange={e=>setJoinCode(e.target.value)}/><button className="secondary" disabled={!joinCode.trim()||busy} onClick={()=>void join()}>Join group</button></div><div className="cards">{groups.map(g=><article className="idea-card" key={g.id}><span className="eyebrow">{g.kind.toUpperCase()}</span><h3>{groupLabel(g)}</h3><p>{members.filter(m=>m.group_id===g.id).length} members · {activities.filter(a=>a.group_id===g.id).length} ideas</p>{g.owner_id===user.id&&<><button className="secondary compact" onClick={()=>invite(g)}><Share2 size={16}/> Invite people</button>{invitations.filter(i=>i.group_id===g.id&&new Date(i.expires_at)>new Date()&&i.uses<i.max_uses).map(i=><div className="invite-entry" key={i.id}><small>Active invite · {i.uses}/{i.max_uses} joined · expires {format(new Date(i.expires_at),'d MMM')}</small><button className="ghost compact" onClick={()=>{setInviteCode(i.code);setInviteModal(true)}}>Show</button><button className="danger compact" onClick={()=>act(async()=>{assertOk((await supabase.from('invitations').delete().eq('id',i.id)).error)})}>Revoke</button></div>)}</>}<div className="members">{members.filter(m=>m.group_id===g.id).map(m=><div key={m.user_id} className="row space"><small>{m.user_id===user.id?'You':profiles.find(p=>p.id===m.user_id)?.display_name||m.user_id.slice(0,8)+'…'}{m.user_id===g.owner_id?' (owner)':''}</small>{g.owner_id===user.id&&m.user_id!==user.id&&<button className="ghost compact" onClick={()=>removeMember(g,m)}>Remove</button>}</div>)}</div>{g.owner_id!==user.id?<button className="danger compact" onClick={()=>removeMember(g,{group_id:g.id,user_id:user.id})}>Leave group</button>:<button className="danger compact" onClick={()=>{if(confirm(`Delete group "${g.name}" and ALL its shared content?`))void act(async()=>{assertOk((await supabase.from('groups').delete().eq('id',g.id)).error)})}}>Delete group</button>}</article>)}</div>{groups.length===0&&<p className="empty">Create your first group and invite your favourite person.</p>}</section>}
- {tab==='Settings'&&<section className="page settings-page"><div className="panel"><h2>Your account</h2><p className="muted">{user.email}</p><Field label="Display name"><input value={personalName} maxLength={80} onChange={e=>setPersonalName(e.target.value)}/></Field><button className="secondary" onClick={()=>saveProfile()}>Save name</button><Field label="New password (optional)"><input type="password" minLength={6} placeholder="Set a new password" value={newPassword} onChange={e=>setNewPassword(e.target.value)}/></Field><button className="secondary" disabled={newPassword.length<6} onClick={()=>act(async()=>{assertOk((await supabase.auth.updateUser({password:newPassword})).error);setNewPassword('');setNotice('Password updated')})}>Change password</button><button className="danger" onClick={()=>supabase.auth.signOut()}>Sign out</button></div><div className="panel install-panel"><h2>📲 Install Together</h2>{installed?<p>✓ Together is already running as an installed app.</p>:<><p className="muted">Add Together to your home screen or desktop for one-tap access.</p>{canPromptInstall?<button type="button" className="primary" onClick={()=>void install()}><Download size={17}/> Install app</button>:isIOS?<p>On iPhone or iPad, open Together in Safari, tap <strong>Share</strong> (square with arrow) and choose <strong>Add to Home Screen</strong> → <strong>Add</strong>.</p>:isAndroid?<p>In Chrome, tap the <strong>⋮ menu</strong> and choose <strong>Add to Home screen</strong> or <strong>Install app</strong>. If unavailable, open this page in Chrome.</p>:<p>In Chrome or Edge, use the install icon in the address bar or the browser menu → <strong>Install page as app</strong>. On Safari (macOS), use <strong>File → Add to Dock</strong> where supported.</p>}{installError&&<p role="alert">{installError}</p>}</>}</div><div className="panel"><h2>Appearance and reminders</h2><label className="toggle"><input type="checkbox" checked={dark} onChange={e=>setDark(e.target.checked)}/> Dark mode</label><label className="toggle"><input type="checkbox" checked={notifications} onChange={async e=>{if(e.target.checked&&'Notification'in window){const permission=await Notification.requestPermission();setNotifications(permission==='granted')}else setNotifications(false)}}/> Enable in-session browser alerts</label><p className="muted">Due dates are always shown on Home. Browser notifications here operate while the app is open; background push delivery is not included.</p></div><div className="panel"><h2>Your data</h2><div className="row wrap"><button className="secondary" onClick={exportData}><Download size={17}/> Export accessible records (JSON)</button><button className="secondary" onClick={()=>download('together-calendar.ics',makeICS(visibleOccurrences,visibleActivities),'text/calendar')}><CalendarDays size={17}/> Export visible calendar (.ics)</button></div><Field label="Import ideas from a Together JSON backup (creates private copies only)"><input type="file" accept="application/json,.json" onChange={e=>{const f=e.target.files?.[0];if(f)void importPersonal(f);e.target.value=''}}/></Field><p className="muted">JSON export records photo metadata, not the image bytes. Download important photos separately. Imports never overwrite other members' content.</p></div><div className="panel"><h2>Privacy</h2><p>My Space is visible only to you. Group activity is visible only to group members. Invites expire. Surprise details are stored separately and shown only to their creator.</p><p className="muted">Group members can edit shared activities. Leaving a group removes access to its data. A group owner can delete the group.</p></div></section>}
+ {tab==='Settings'&&<section className="page settings-page"><div className="panel"><h2>Your account</h2><p className="muted">{user.email}</p><Field label="Display name"><input value={personalName} maxLength={80} onChange={e=>setPersonalName(e.target.value)}/></Field><button className="secondary" onClick={()=>saveProfile()}>Save name</button><Field label="New password (optional)"><input type="password" minLength={6} placeholder="Set a new password" value={newPassword} onChange={e=>setNewPassword(e.target.value)}/></Field><button className="secondary" disabled={newPassword.length<6} onClick={()=>act(async()=>{assertOk((await supabase.auth.updateUser({password:newPassword})).error);setNewPassword('');setNotice('Password updated')})}>Change password</button><button className="danger" onClick={()=>supabase.auth.signOut()}>Sign out</button></div><div className="panel install-panel"><h2>📲 Install Together</h2>{installed?<p>✓ Together is already running as an installed app.</p>:<><p className="muted">Add Together to your home screen or desktop for one-tap access.</p>{canPromptInstall?<button type="button" className="primary" onClick={()=>void install()}><Download size={17}/> Install app</button>:isIOS?<p>On iPhone or iPad, open Together in Safari, tap <strong>Share</strong> (square with arrow) and choose <strong>Add to Home Screen</strong> → <strong>Add</strong>.</p>:isAndroid?<p>In Chrome, tap the <strong>⋮ menu</strong> and choose <strong>Add to Home screen</strong> or <strong>Install app</strong>. If unavailable, open this page in Chrome.</p>:<p>In Chrome or Edge, use the install icon in the address bar or the browser menu → <strong>Install page as app</strong>. On Safari (macOS), use <strong>File → Add to Dock</strong> where supported.</p>}{installError&&<p role="alert">{installError}</p>}</>}</div><div className="panel"><h2>Appearance and reminders</h2><label className="toggle"><input type="checkbox" checked={dark} onChange={e=>setDark(e.target.checked)}/> Dark mode</label><label className="toggle"><input type="checkbox" checked={notifications} onChange={async e=>{if(e.target.checked&&'Notification'in window){const permission=await Notification.requestPermission();setNotifications(permission==='granted')}else setNotifications(false)}}/> Enable in-session browser alerts</label><p className="muted">Due dates are always shown on Home. Browser notifications here operate while the app is open; background push delivery is not included.</p></div><div className="panel"><h2>Your data</h2><div className="row wrap"><button className="secondary" onClick={exportData}><Download size={17}/> Export records (JSON)</button><button className="primary" disabled={busy} onClick={()=>void exportFullBackup()}><Download size={17}/> Full backup with photos (.zip)</button>{backupProgress&&<p role="status">{backupProgress}</p>}<button className="secondary" onClick={()=>download('together-calendar.ics',makeICS(visibleOccurrences,visibleActivities),'text/calendar')}><CalendarDays size={17}/> Export visible calendar (.ics)</button></div><Field label="Import ideas from a Together JSON backup (creates private copies only)"><input type="file" accept="application/json,.json" onChange={e=>{const f=e.target.files?.[0];if(f)void importPersonal(f);e.target.value=''}}/></Field><p className="muted">Full ZIP backups include photo files, private notes, shared group data and surprise details. Save the ZIP somewhere secure, and verify it opens before relying on it. Import currently restores private ideas only; full restore is not supported. For large photo libraries, back up from a desktop. Already-uploaded older photos may still contain EXIF/GPS metadata.</p></div><div className="panel"><h2>Privacy</h2><p>My Space is visible only to you. Group activity is visible only to group members. Invites expire. Surprise details are stored separately and shown only to their creator.</p><p className="muted">Group members can edit shared activities; only creators can delete activities and visits. Leaving a group stops new access but does not revoke screenshots, downloads or previously issued short-lived photo links. Group owners can delete entire groups.</p></div></section>}
  </div><nav className="mobile-nav" aria-label="Mobile navigation">{tabs.map(t=>{const Icon=icon[t];return <button key={t} className={tab===t?'active':''} onClick={()=>setTab(t)}><Icon size={21}/><span>{t}</span></button>})}</nav>
  {idea&&<Modal title={idea.id?'Edit activity':creationKind==='event'?'Add an event':'Save an idea'} onClose={closeIdea}>
   <form className="form flow-form" onSubmit={saveIdea}>
@@ -369,7 +472,7 @@ export default function App() {
     <div className="two"><DateField label="Available from" value={event.available_from} onChange={v=>setEvent({...event,available_from:v})}/><DateField label="Available until" value={event.available_until} onChange={v=>setEvent({...event,available_until:v})}/></div>
     <Field label="Repeats"><select value={event.repeat_rule} onChange={e=>setEvent({...event,repeat_rule:e.target.value as Occurrence['repeat_rule']})}>{['none','weekly','monthly','yearly'].map(s=><option key={s}>{s}</option>)}</select></Field>
     <label className="toggle"><input type="checkbox" checked={event.visibility==='surprise'} onChange={e=>{setEvent({...event,visibility:e.target.checked?'surprise':'normal',title_override:e.target.checked?null:event.title_override});setEventSecret(e.target.checked?{title:'',details:''}:null)}}/> Surprise plan</label>
-    {event.visibility==='surprise'&&<><p className="muted">The shared activity still reveals its own title, description and event dates. To keep a surprise secret, create a non-descriptive activity first. Memories cannot be added until surprise visibility is removed.</p><Field label="Private real title"><input value={eventSecret?.title||''} onChange={e=>setEventSecret({...eventSecret||{details:''},title:e.target.value})}/></Field><Field label="Private surprise details"><textarea value={eventSecret?.details||''} onChange={e=>setEventSecret({...eventSecret||{title:''},details:e.target.value})}/></Field></>}
+    {event.visibility==='surprise'&&<><p className="muted">A surprise hides its plan location, memory and ticket URL from the group. The underlying shared activity still reveals its title, map pin, description and event dates: use a generic, unpinned activity for secrets. Store the real destination in Private surprise details.</p><Field label="Private real title"><input value={eventSecret?.title||''} onChange={e=>setEventSecret({...eventSecret||{details:''},title:e.target.value})}/></Field><Field label="Private surprise details"><textarea value={eventSecret?.details||''} onChange={e=>setEventSecret({...eventSecret||{title:''},details:e.target.value})}/></Field></>}
   </>}
   <footer className="modal-footer"><button type="button" className="ghost" disabled={busy} onClick={closePlan}>Cancel</button><button className="primary" disabled={busy||!eventActivity}>Save plan</button></footer>
  </form></Modal>}
@@ -393,7 +496,7 @@ export default function App() {
    <h3>Inspiration gallery</h3><p className="muted">Shared activity photos are visible to members of this space.</p><PhotoStrip photos={ideaPhotos.filter(p=>p.activity_id===detail.id)} me={user.id} removePhoto={p=>removePhoto(p,'idea')} onCaptionChange={(p,c)=>changePhotoCaption(p,'idea',c)}/>
    <button className="ghost compact" onClick={()=>startIdea({...detail},'idea','photos')}>+ Add photos and captions</button>
    <details className="hub-details"><summary>🔒 My private note</summary><p className="muted">Only you can read this note.</p><textarea rows={3} value={noteDraft} onChange={e=>setNoteDraft(e.target.value)} placeholder="Private thoughts…"/><button className="secondary compact" onClick={()=>saveNote(detail)}>Save private note</button></details>
-   <details className="hub-details"><summary>Sharing and advanced actions</summary><p className="muted">Share a new independent copy of this activity. The original plans, personal votes, notes and photos are not copied.</p><select defaultValue="" aria-label="Share a copy to a space" onChange={e=>{const v=e.target.value;if(v){void share(detail,v==='personal'?null:v);e.target.value=''}}}><option value="">Choose destination…</option><option value="personal">🔒 My Space</option>{groups.filter(g=>g.id!==detail.group_id).map(g=><option key={g.id} value={g.id}>{groupLabel(g)}</option>)}</select><button className="danger compact" onClick={()=>removeActivity(detail)} disabled={busy}><Trash2 size={16}/> Delete activity and its history</button></details>
+   <details className="hub-details"><summary>Sharing and advanced actions</summary><p className="muted">Share a new independent copy of this activity. The original plans, personal votes, notes and photos are not copied.</p><select defaultValue="" aria-label="Share a copy to a space" onChange={e=>{const v=e.target.value;if(v){void share(detail,v==='personal'?null:v);e.target.value=''}}}><option value="">Choose destination…</option><option value="personal">🔒 My Space</option>{groups.filter(g=>g.id!==detail.group_id).map(g=><option key={g.id} value={g.id}>{groupLabel(g)}</option>)}</select>{detail.owner_id===user.id?<button className="danger compact" onClick={()=>removeActivity(detail)} disabled={busy}><Trash2 size={16}/> Delete activity and its history</button>:<small>Only the person who created this activity can delete it.</small>}</details>
   </>}
   {hubPane==='plans'&&<>
    <p className="muted">Plans are dates when you might actually attend. Each plan can become its own memory; the event's fixed date stays unchanged.</p>
@@ -408,7 +511,7 @@ export default function App() {
       {secrets.find(x=>x.occurrence_id===o.id)&&<p className="private-note">🔒 Your surprise details: {secrets.find(x=>x.occurrence_id===o.id)?.true_title} — {secrets.find(x=>x.occurrence_id===o.id)?.details}</p>}
       <div className="row wrap"><button className="primary compact" disabled={busy||o.visibility==='surprise'} onClick={()=>startCompletion(o)}>✓ Mark completed</button><button className="secondary compact" onClick={()=>editPlan(o)}>✏️ Edit plan</button></div>
       {o.visibility==='surprise'&&<p className="muted">Change surprise visibility in plan settings before creating a shared memory.</p>}
-      <details className="hub-details"><summary>More actions</summary><button className="danger compact" disabled={busy} onClick={()=>removeOccurrence(o)}>Delete plan and memory</button></details>
+      <details className="hub-details"><summary>More actions</summary>{o.owner_id===user.id?<button className="danger compact" disabled={busy} onClick={()=>removeOccurrence(o)}>Delete plan and memory</button>:<small>Only the visit creator can delete it.</small>}</details>
     </div>}
    </article>)}
    {!occurrences.some(o=>o.activity_id===detail.id&&o.status!=='completed')&&<p className="empty">No visits planned yet. This activity can stay an idea until you're ready.</p>}
@@ -424,7 +527,7 @@ export default function App() {
       <h3>Photos</h3><PhotoStrip photos={photos.filter(p=>p.occurrence_id===o.id)} me={user.id} removePhoto={p=>removePhoto(p,'memory')} onCaptionChange={(p,c)=>changePhotoCaption(p,'memory',c)}/>
       <PhotoUpload onUpload={(file,caption)=>uploadMedia('memory',o.id,file,caption)} onFinished={()=>void fetchData().catch(ex=>setError(errmsg(ex)))}/>
       <div className="row wrap"><button className="primary compact" onClick={()=>startCompletion(o)}>✏️ Edit memory & cost</button><button className="ghost compact" onClick={()=>editPlan(o)}>Edit visit details</button></div>
-      <details className="hub-details"><summary>More actions</summary><button className="danger compact" onClick={()=>removeOccurrence(o)} disabled={busy}>Delete this visit and memory</button></details>
+      <details className="hub-details"><summary>More actions</summary>{o.owner_id===user.id?<button className="danger compact" onClick={()=>removeOccurrence(o)} disabled={busy}>Delete this visit and memory</button>:<small>Only the visit creator can delete it.</small>}</details>
     </div>}
    </article>)}
    {!occurrences.some(o=>o.activity_id===detail.id&&o.status==='completed')&&<p className="empty">Once you complete a visit, its memories will appear here.</p>}
@@ -451,9 +554,9 @@ function PhotoStrip({photos,removePhoto,onCaptionChange,me,compact=false}: {phot
  const [urls,setUrls]=useState<Record<string,string>>({}),[editing,setEditing]=useState<string|null>(null),[draft,setDraft]=useState('')
  const photoSignature=photos.map(p=>p.id+':'+p.path).join('|')
  useEffect(()=>{let active=true
-  async function refresh(){const all=await Promise.all(photos.map(async p=>{const {data}=await supabase.storage.from('memories').createSignedUrl(p.path,3600);return[p.id,data?.signedUrl||''] as const}));if(active)setUrls(Object.fromEntries(all))}
+  async function refresh(){const all=await Promise.all(photos.map(async p=>{const {data}=await supabase.storage.from('memories').createSignedUrl(p.path,300);return[p.id,data?.signedUrl||''] as const}));if(active)setUrls(Object.fromEntries(all))}
   void refresh().catch(()=>{})
-  const interval=window.setInterval(()=>{void refresh().catch(()=>{})},55*60*1000)
+  const interval=window.setInterval(()=>{void refresh().catch(()=>{})},4*60*1000)
   return()=>{active=false;window.clearInterval(interval)}
  // Recompute signed URLs only when identities change, not for every parent render.
  // eslint-disable-next-line react-hooks/exhaustive-deps
