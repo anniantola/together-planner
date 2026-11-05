@@ -106,3 +106,18 @@
 .photo-grid.compact-photos .photo-placeholder {height:140px;aspect-ratio:auto}
 /* Keep validation and upload errors visible above an open editor. */
 .alert {position:fixed;z-index:6100;top:max(.7rem,env(safe-area-inset-top));left:50%;transform:translateX(-50%);width:min(580px,calc(100vw - 1.2rem));box-shadow:0 8px 28px #0006}
+
+/* Visible, per-space Map filters (same selection state as Calendar). */
+.map-space-filters{display:grid;justify-items:start;gap:.5rem;padding:.85rem 1rem;border:1px solid var(--border);border-radius:12px;background:var(--surface);min-width:0}
+.map-space-filters .scopes{width:100%;gap:.5rem .95rem}
+.map-space-filters .toggle{max-width:100%;overflow-wrap:anywhere}
+.install-panel{justify-items:start}
+.install-panel>p{margin:0;overflow-wrap:anywhere}
+.top-actions{flex-wrap:wrap;justify-content:flex-end}
+@media(max-width:650px){
+ .map-space-filters{padding:.75rem}
+ .map-space-filters .scopes{gap:.3rem .65rem}
+ .map-space-filters .toggle{font-size:.8rem}
+ .topbar{align-items:flex-start}
+ .topbar>div:first-child{min-width:0}
+}
