@@ -27,6 +27,7 @@ jobs:
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
           VITE_ENABLE_GOOGLE_AUTH: ${{ vars.VITE_ENABLE_GOOGLE_AUTH }}
+          VITE_GEOAPIFY_API_KEY: ${{ vars.VITE_GEOAPIFY_API_KEY }}
           VITE_BASE_PATH: /${{ github.event.repository.name }}/
       - uses: actions/upload-pages-artifact@v3
         if: github.event_name == 'push'

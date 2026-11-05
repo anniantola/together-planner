@@ -122,3 +122,33 @@ Email/password signup explains that verification is required and shows an explic
 **Production email:** Supabase's default sender currently has a project-wide limit of 2 emails/hour and only supports the organization team's email addresses. Before inviting other users, configure **Authentication → SMTP Settings** (or Send Email hook) with a provider/domain authorized to send your mail. Leave email confirmation ON. Changing frontend code does not raise this quota.
 
 **Optional Google sign-in:** Configure Google OAuth credentials in Google Cloud, enable **Authentication → Sign In / Providers → Google** in Supabase, set its callback URL to the one supplied by Supabase, and set GitHub Actions repository variable `VITE_ENABLE_GOOGLE_AUTH=true`. Redeploy. Google sign-in is intentionally hidden until configured. Do not enable the flag before the provider is operational.
+
+## Social, photo and map improvements — follow-up migration (November 2026)
+
+**Run `supabase/migrations/202611050001_social_media.sql` once in the SAME Supabase project in SQL Editor, before deploying the upgraded frontend.** It adds three RLS-protected tables (private per-person favourites, per-person ratings, inspiration photos), author-only photo-caption editing and private Storage policies. Existing accounts, groups, ideas, visits, votes, and photos remain intact. Existing shared `favorite` flags and legacy completed-visit ratings migrate to the original creator's personal values. Do NOT repeat the initial migration or wipe your database. If the database schema has not been upgraded, the new client will report missing-table errors.
+
+### How the new interactions work
+
+- **Ideas → hearts:** tap the heart to vote Love, tap again to undo; the Details panel offers Love / Maybe / Pass, each togglable. Vote totals are shared with the group.
+- **Ideas → ☆:** toggle your *private* favourite directly on the card or in Details. Filter by "★ My favourites". Other group members cannot query your personal favourites.
+- **Plans → completed visit → Your experience rating:** each participant gives their own 1–5 star rating. Group average and rating count appear in Memories and the plan detail. The old shared rating field is no longer edited.
+- **Idea → Details → Inspiration photos:** add multiple photos, see previews and write a caption before uploading. Memory photos have the same workflow. Photo captions can be edited by the uploader; media and database rows stay private to the user/group via RLS. 8 files per batch, 10 MB each.
+- **Ideas → Edit → Search a place or address:** type a venue, landmark or street address, press "Find place", select a verified result, and its label and coordinates are filled automatically. Manual pins remain possible. **Map** has the same finder, with a "Save this place as an idea" action. Map markers feature category emojis and distinct idea / planned / visited colours, with an additional personal-favourites map filter.
+
+### Enable Geoapify place/address search (optional free provider)
+
+1. Sign up at https://myprojects.geoapify.com/ and create a free project. The free plan currently allows 3,000 API credits per day without a credit card. The app uses the Geocoding API, *not* Google Maps billing.
+2. Under API Keys, restrict your **browser key** to the Together GitHub Pages referrer/origin `https://anniantola.github.io` (and, if needed, your local development origin). Test restrictions after saving. A Vite browser key is never secret, so domain restrictions are important.
+3. In GitHub repository **Settings → Secrets and variables → Actions → Variables**, add `VITE_GEOAPIFY_API_KEY` with the restricted Geoapify key. The deployment workflow passes this value to the client. Trigger a new push to rebuild. For local development, put it in `.env.local`.
+4. Until configured, place search clearly indicates it is disabled; all existing manual map functionality continues to work.
+
+Location lookups are triggered **only when users press Find place**. Search text is transmitted to Geoapify, so don't search private residential addresses. Saved map locations are visible to authorized members of the idea's space, and public map tile servers receive the viewed map area. No location permission is requested from your device. Check Geoapify usage terms and API quota for broader releases.
+
+### Acceptance checks after migration
+
+- With two accounts in the same group, verify both can heart a shared idea and independently unheart it; each user sees only their own ⭐ favourites.
+- Complete a shared plan, submit different ratings from two accounts, verify the mean; clearing one updates the count.
+- Attach idea photos with captions and memory photos, verify they show to members but not a nonmember; check caption edit/delete by uploader only.
+- Search for a museum and street address, choose a result, verify the map pin location and emoji/status colour. Try search with the API key disabled and confirm manual map selection still works.
+- Photo deletion from another member may leave an orphaned object in private Storage when its parent is removed; we need a server-authorized storage-cleanup workflow before relying on this as a permanent photo archive.
+- Open the app at 320px on mobile in dark mode; confirm no form overflow and that the signed-in Google flow remains unaffected.

@@ -21,3 +21,7 @@ export type Photo = { id: string; occurrence_id: string; path: string; caption: 
 export type Secret = { occurrence_id: string; details: string; true_title: string|null }
 export type Scope = { id: string|null; label: string }
 export const CATEGORIES = ['Food & drink','Concerts & music','Arts & museums','Outdoors','Travel','At home','Movies & theatre','Sports','Wellness','Learning','Other']
+
+export type IdeaPhoto = {id:string;activity_id:string;path:string;caption:string|null;uploaded_by:string;created_at:string}
+export type ExperienceRating = {occurrence_id:string;user_id:string;rating:number;updated_at:string}
+export type PersonalFavorite = {activity_id:string;user_id:string;created_at:string}

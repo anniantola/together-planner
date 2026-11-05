@@ -24,3 +24,39 @@
 .auth-feedback.success{background:color-mix(in srgb,var(--mint) 15%,var(--surface));color:var(--text);border-color:var(--mint)}
 .auth-oauth{display:grid;gap:.7rem;margin-top:1rem;text-align:center}
 .auth-oauth>span{color:var(--muted);font-size:.8rem}
+
+/* Date ideas: place finder, personal favourites, photo editing and friendly maps */
+.place-search{display:grid;gap:.55rem;margin:.45rem 0;min-width:0}
+.place-search-form{display:flex;flex-wrap:wrap;gap:.5rem;align-items:end}
+.place-search-form>.field{flex:1 1 215px}
+.place-search-form>button{min-height:44px}
+.place-results{border:1px solid var(--border);border-radius:11px;overflow:hidden;display:grid}
+.place-results button{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:.5rem;min-height:46px;padding:.7rem .8rem;color:var(--text);background:var(--surface2);text-align:left;border:0;border-bottom:1px solid var(--border)}
+.place-results button:last-child{border-bottom:0}
+.place-results button:focus-visible,.place-results button:hover{outline:2px solid var(--accent);outline-offset:-2px}
+.place-results small,.place-credit{font-size:.73rem;color:var(--muted)}
+.photo-uploader{display:grid;gap:.7rem;background:var(--surface2);border-radius:12px;padding:.8rem}
+.pending-photos{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,180px),1fr));gap:.6rem}
+.pending-photo{display:grid;gap:.5rem;min-width:0}
+.pending-photo img{width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:10px}
+.photo{min-width:0}
+.photo-caption{font-size:.8rem;color:var(--muted);line-height:1.35;overflow-wrap:anywhere;margin:.3rem 0}
+.photo .row{gap:.25rem}
+.photo .row button{font-size:.7rem;padding:.35rem}
+.photo-grid.compact-photos{grid-template-columns:1fr;max-width:100%;margin:0}
+.photo-grid.compact-photos .photo img{height:140px;aspect-ratio:auto;object-fit:cover}
+.caption-editor{display:grid;gap:.25rem;margin-top:.4rem}
+.caption-editor input{width:100%;min-width:0;border:1px solid var(--border);border-radius:7px;padding:.5rem;color:var(--text);background:var(--surface2);font:inherit}
+.rating-stars{gap:.4rem}
+.rating-stars button{min-height:42px;font-size:1rem}
+.together-pin-wrapper{background:none;border:0}
+.together-map-pin{--pin-bg:#f5cb76;--pin-fg:#3e3025;position:relative;width:42px;height:42px;border:2px solid #fffaf2;box-shadow:0 2px 6px #0005;display:flex;align-items:center;justify-content:center;border-radius:17px 17px 16px 16px;background:var(--pin-bg);color:var(--pin-fg)}
+.together-map-pin:after{content:"";position:absolute;bottom:-9px;left:13px;width:13px;height:13px;border-right:2px solid #fffaf2;border-bottom:2px solid #fffaf2;transform:rotate(45deg);background:var(--pin-bg);z-index:-1}
+.together-map-pin .pin-symbol{font-size:23px;line-height:1}
+.together-map-pin .pin-badge{position:absolute;top:-8px;right:-9px;display:grid;place-items:center;width:22px;height:22px;line-height:1;color:#fff;background:#5f5368;border:2px solid #fff;border-radius:50%;font-size:.7rem;font-weight:800}
+.together-map-pin.visited{--pin-bg:#a9e3b0}.together-map-pin.visited .pin-badge{background:#246a3e}
+.together-map-pin.planned{--pin-bg:#bed8ff}.together-map-pin.planned .pin-badge{background:#3766ac}
+.together-map-pin.picked{--pin-bg:#ffacc8}.together-map-pin.picked .pin-badge{background:#a7346e}
+.together-map-pin.idea .pin-badge{background:#9e722c}
+@media (max-width:650px){.place-search-form>button{width:100%}.photo-grid{grid-template-columns:repeat(auto-fill,minmax(120px,1fr))}}
+.map-legend{margin:.2rem 0 .5rem}
