@@ -60,3 +60,36 @@
 .together-map-pin.idea .pin-badge{background:#9e722c}
 @media (max-width:650px){.place-search-form>button{width:100%}.photo-grid{grid-template-columns:repeat(auto-fill,minmax(120px,1fr))}}
 .map-legend{margin:.2rem 0 .5rem}
+
+/* Fix Memories page on mobile */
+.year-heatmap {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.heatmap-days {
+  width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.memory-list,
+.memory-card {
+  min-width: 0;
+}
+
+.memory-card {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 650px) {
+  .stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .stat {
+    min-width: 0;
+  }
+}
