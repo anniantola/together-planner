@@ -5,6 +5,7 @@ import { CalendarDays, Heart, Lightbulb, MapPinned, BookHeart, Users, Settings, 
 import type { Activity, Occurrence, Group, Membership, Vote, RSVP, Photo, Secret } from './lib/types'
 import { CATEGORIES } from './lib/types'
 import { configured, supabase, assertOk } from './lib/supabase'
+import { friendlyAuthError } from './lib/auth-errors'
 import { asISO, calendarDays, daysUntil, download, dueItems, expandOccurrences, localInput, makeICS, safeUrl, when } from './lib/helpers'
 import ActivityMap from './components/ActivityMap'
 import type { User } from '@supabase/supabase-js'
@@ -52,7 +53,7 @@ export default function App() {
    setPhotos((requests[6].data||[]) as Photo[]);setSecrets((requests[7].data||[]) as Secret[])
    setPersonalName((requests[8].data as {display_name?:string}|null)?.display_name||'');setNotes(requests[9].data||[]);setProfiles(requests[10].data||[]);setTicketClaims(requests[11].data||[]);setInvitations(requests[12].data||[])
  },[user])
- useEffect(()=>{supabase.auth.getUser().then(({data})=>{setUser(data.user);setLoading(false)}).catch(e=>{setError(errmsg(e));setLoading(false)});const {data:{subscription}}=supabase.auth.onAuthStateChange((_ev,s)=>setUser(s?.user||null));return()=>subscription.unsubscribe()},[])
+ useEffect(()=>{supabase.auth.getUser().then(({data})=>{setUser(data.user);setLoading(false)}).catch(e=>{setError(errmsg(e));setLoading(false)});const {data:{subscription}}=supabase.auth.onAuthStateChange((event,s)=>{setUser(s?.user||null);if(event==='PASSWORD_RECOVERY'){setTab('Settings');setNotice('Password recovery verified. Set a new password in Settings.')}});return()=>subscription.unsubscribe()},[])
  useEffect(()=>{if(!user)return;let alive=true;setLoading(true);fetchData().catch(e=>{if(alive)setError(errmsg(e))}).finally(()=>{if(alive)setLoading(false)});return()=>{alive=false}},[user,fetchData])
  useEffect(()=>{if(!user)return;const channel=supabase.channel('together-updates').on('postgres_changes',{event:'*',schema:'public',table:'activities'},()=>void fetchData()).on('postgres_changes',{event:'*',schema:'public',table:'occurrences'},()=>void fetchData()).on('postgres_changes',{event:'*',schema:'public',table:'votes'},()=>void fetchData()).on('postgres_changes',{event:'*',schema:'public',table:'rsvps'},()=>void fetchData()).subscribe();return()=>{void supabase.removeChannel(channel)}},[user,fetchData])
  const scopeInit=useRef(false)
@@ -185,6 +186,146 @@ function oDate(o:Occurrence){return o.starts_at?new Date(o.starts_at).getTime():
 function groupLabel(g:Group){return `${g.kind==='couple'?'❤️':g.kind==='friends'?'👯':g.kind==='family'?'🏡':'🌿'} ${g.name}`}
 function PhotoStrip({photos,removePhoto,me}: {photos:Photo[];removePhoto?:(p:Photo)=>void;me?:string}){const [urls,setUrls]=useState<Record<string,string>>({});useEffect(()=>{let active=true;void Promise.all(photos.map(async p=>{const {data}=await supabase.storage.from('memories').createSignedUrl(p.path,300);return[p.id,data?.signedUrl||''] as const})).then(all=>{if(active)setUrls(Object.fromEntries(all))});return()=>{active=false}},[photos]);return <div className="photo-grid">{photos.map(p=>urls[p.id]&&<div key={p.id} className="photo"><a href={urls[p.id]} target="_blank" rel="noreferrer"><img alt={p.caption||'Shared memory'} src={urls[p.id]}/></a>{removePhoto&&p.uploaded_by===me&&<button className="photo-delete" aria-label="Delete photo" onClick={()=>removePhoto(p)}><X size={16}/></button>}</div>)}</div>}
 function CreateGroup({onClose,onCreate}: {onClose:()=>void;onCreate:(name:string,kind:Group['kind'])=>Promise<void>}){const [name,setName]=useState(''),[kind,setKind]=useState<Group['kind']>('couple');return <Modal title="Create a shared space" onClose={onClose}><form className="form" onSubmit={e=>{e.preventDefault();void onCreate(name.trim(),kind)}}><Field label="Group name"><input required autoFocus maxLength={100} value={name} onChange={e=>setName(e.target.value)}/></Field><Field label="Group type"><select value={kind} onChange={e=>setKind(e.target.value as Group['kind'])}><option value="couple">❤️ Couple</option><option value="friends">👯 Friends</option><option value="family">🏡 Family</option><option value="custom">🌿 Custom</option></select></Field><p className="muted">Spaces are private. Invite participants from the Groups page after creating.</p><footer className="modal-footer"><button type="button" className="ghost" onClick={onClose}>Cancel</button><button className="primary">Create group</button></footer></form></Modal>}
-function Auth(){const [email,setEmail]=useState(''),[password,setPassword]=useState(''),[name,setName]=useState(''),[mode,setMode]=useState<'signin'|'signup'|'reset'>('signin'),[feedback,setFeedback]=useState(''),[busy,setBusy]=useState(false)
- async function submit(e:FormEvent){e.preventDefault();setBusy(true);setFeedback('');try{if(mode==='signin'){const {error}=await supabase.auth.signInWithPassword({email,password});assertOk(error)}else if(mode==='signup'){const {error}=await supabase.auth.signUp({email,password,options:{data:{display_name:name},emailRedirectTo:window.location.origin+import.meta.env.BASE_URL}});assertOk(error);setFeedback('Check your email to confirm your account (if email confirmation is enabled).')}else{const {error}=await supabase.auth.resetPasswordForEmail(email,{redirectTo:window.location.origin+import.meta.env.BASE_URL});assertOk(error);setFeedback('Password reset email sent, if an account exists.')}}catch(e){setFeedback(errmsg(e))}finally{setBusy(false)}}
- return <div className="auth-page"><div className="auth-card"><Heart size={40} fill="currentColor"/><div className="eyebrow">YOUR PEOPLE · YOUR PLANS · YOUR STORIES</div><h1>Together</h1><p>A private home for shared experiences, little adventures and favourite memories.</p><form onSubmit={submit} className="form">{mode==='signup'&&<Field label="Your name"><input required maxLength={80} value={name} onChange={e=>setName(e.target.value)}/></Field>}<Field label="Email"><input type="email" required value={email} onChange={e=>setEmail(e.target.value)}/></Field>{mode!=='reset'&&<Field label="Password"><input type="password" minLength={6} required value={password} onChange={e=>setPassword(e.target.value)}/></Field>}<button className="primary" disabled={busy}>{mode==='signin'?'Sign in':mode==='signup'?'Create account':'Send reset link'}</button>{feedback&&<p role="status">{feedback}</p>}</form><div className="row wrap auth-links"><button className="link" onClick={()=>setMode(mode==='signin'?'signup':'signin')}>{mode==='signin'?'Create an account':'Back to sign in'}</button><button className="link" onClick={()=>setMode('reset')}>Forgot password?</button></div></div></div>}
+function Auth() {
+  type Mode = 'signin' | 'signup' | 'reset' | 'verify'
+  type Feedback = { kind: 'success' | 'error'; message: string }
+  const [mode, setMode] = useState<Mode>('signin')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [name, setName] = useState('')
+  const [verificationEmail, setVerificationEmail] = useState('')
+  const [feedback, setFeedback] = useState<Feedback | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [lastEmailSentAt, setLastEmailSentAt] = useState(0)
+  const [clock, setClock] = useState(Date.now())
+  const googleEnabled = import.meta.env.VITE_ENABLE_GOOGLE_AUTH === 'true'
+  const redirectTo = window.location.origin + import.meta.env.BASE_URL
+  const resendCooldown = Math.max(0, Math.ceil((lastEmailSentAt + 60000 - clock) / 1000))
+
+  useEffect(() => {
+    if (mode !== 'verify' || resendCooldown === 0) return
+    const id = window.setInterval(() => setClock(Date.now()), 1000)
+    return () => window.clearInterval(id)
+  }, [mode, resendCooldown])
+
+  function changeMode(next: Mode) {
+    setMode(next)
+    setFeedback(null)
+    setPassword('')
+  }
+
+  async function submit(e: FormEvent) {
+    e.preventDefault()
+    if (busy) return
+    setBusy(true)
+    setFeedback(null)
+    const address = email.trim()
+    try {
+      if (mode === 'signin') {
+        const { error } = await supabase.auth.signInWithPassword({ email: address, password })
+        if (error?.code === 'email_not_confirmed' || /email not confirmed/i.test(error?.message || '')) {
+          setVerificationEmail(address)
+          setMode('verify')
+          setFeedback({ kind: 'error', message: 'Your email address is not verified yet. Open the confirmation email, follow its link, then return to Together.' })
+          return
+        }
+        assertOk(error)
+        setFeedback({ kind: 'success', message: 'Signed in. Opening your space…' })
+      } else if (mode === 'signup') {
+        const { data, error } = await supabase.auth.signUp({
+          email: address,
+          password,
+          options: { data: { display_name: name.trim() }, emailRedirectTo: redirectTo }
+        })
+        assertOk(error)
+        if (data.session) {
+          setFeedback({ kind: 'success', message: 'Account created and signed in.' })
+        } else {
+          setVerificationEmail(address)
+          setLastEmailSentAt(Date.now())
+          setClock(Date.now())
+          setPassword('')
+          setMode('verify')
+          setFeedback({ kind: 'success', message: 'If this is a new account, a verification email will be sent. You must verify your email before signing in.' })
+        }
+      } else if (mode === 'reset') {
+        const { error } = await supabase.auth.resetPasswordForEmail(address, { redirectTo })
+        assertOk(error)
+        setFeedback({ kind: 'success', message: 'If that account exists, password-reset instructions have been requested. Check your inbox and spam folder.' })
+      }
+    } catch (error) {
+      setFeedback({ kind: 'error', message: friendlyAuthError(error) })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function resendConfirmation() {
+    if (busy || resendCooldown > 0 || !verificationEmail) return
+    setBusy(true)
+    setFeedback(null)
+    try {
+      const { error } = await supabase.auth.resend({
+        type: 'signup', email: verificationEmail,
+        options: { emailRedirectTo: redirectTo }
+      })
+      assertOk(error)
+      setLastEmailSentAt(Date.now())
+      setClock(Date.now())
+      setFeedback({ kind: 'success', message: 'If this account is awaiting confirmation, another verification email has been requested. Check your inbox and spam folder.' })
+    } catch (error) {
+      setFeedback({ kind: 'error', message: friendlyAuthError(error) })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function signInWithGoogle() {
+    if (busy) return
+    setBusy(true)
+    setFeedback(null)
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({provider: 'google', options: {redirectTo}})
+      assertOk(error)
+    } catch (error) {
+      setFeedback({ kind: 'error', message: friendlyAuthError(error) })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return <div className="auth-page"><div className="auth-card">
+    <Heart size={40} fill="currentColor" />
+    <div className="eyebrow">YOUR PEOPLE · YOUR PLANS · YOUR STORIES</div>
+    <h1>Together</h1>
+    <p>A private home for shared experiences, little adventures and favourite memories.</p>
+
+    {mode === 'verify' ? <section className="auth-confirm">
+      <h2>Check your email</h2>
+      <p>We need to verify <strong>{verificationEmail}</strong> before you can sign in.</p>
+      <ol><li>Open your inbox (and spam folder).</li><li>Click the confirmation link from Together / Supabase.</li><li>Return here to sign in if you aren't signed in automatically.</li></ol>
+      <p className="muted">Email delivery can take a little while. Repeated requests may hit the shared email limit.</p>
+      <button type="button" className="secondary" disabled={busy || resendCooldown > 0} onClick={() => void resendConfirmation()}>
+        {busy ? 'Sending…' : resendCooldown > 0 ? `Resend available in ${resendCooldown}s` : 'Resend verification email'}
+      </button>
+      <button type="button" className="link" onClick={() => changeMode('signin')}>Already verified? Sign in</button>
+      <button type="button" className="link" onClick={() => changeMode('signup')}>Use a different email</button>
+    </section> : <>
+      <h2 className="auth-mode-title">{mode === 'signin' ? 'Sign in' : mode === 'signup' ? 'Create an account' : 'Reset your password'}</h2>
+      {mode === 'signup' && <p className="muted">You will need to verify your email address before your first sign-in.</p>}
+      {mode === 'reset' && <p className="muted">We'll request a password-reset link for this email address.</p>}
+      <form onSubmit={e => void submit(e)} className="form">
+        {mode === 'signup' && <Field label="Your name"><input required autoComplete="name" maxLength={80} value={name} onChange={e => setName(e.target.value)} /></Field>}
+        <Field label="Email"><input type="email" autoComplete="email" required value={email} onChange={e => setEmail(e.target.value)} /></Field>
+        {mode !== 'reset' && <Field label="Password"><input type="password" autoComplete={mode === 'signup' ? 'new-password' : 'current-password'} minLength={mode === 'signup' ? 8 : undefined} required value={password} onChange={e => setPassword(e.target.value)} /></Field>}
+        <button className="primary" disabled={busy}>{busy ? 'Working…' : mode === 'signin' ? 'Sign in' : mode === 'signup' ? 'Create account' : 'Send reset link'}</button>
+      </form>
+      {googleEnabled && mode !== 'reset' && <div className="auth-oauth"><span>or</span><button type="button" className="secondary" disabled={busy} onClick={() => void signInWithGoogle()}>Continue with Google</button></div>}
+      <div className="row wrap auth-links">
+        <button type="button" className="link" onClick={() => changeMode(mode === 'signin' ? 'signup' : 'signin')}>{mode === 'signin' ? 'Create an account' : 'Back to sign in'}</button>
+        {mode !== 'reset' && <button type="button" className="link" onClick={() => changeMode('reset')}>Forgot password?</button>}
+      </div>
+    </>}
+    {feedback && <div className={`auth-feedback ${feedback.kind}`} role={feedback.kind === 'error' ? 'alert' : 'status'} aria-live="polite">{feedback.message}</div>}
+  </div></div>
+}

@@ -1,0 +1,1 @@
+{"root":["./src/App.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/components/ActivityMap.tsx","./src/lib/auth-errors.ts","./src/lib/helpers.ts","./src/lib/supabase.ts","./src/lib/types.ts","./tests/auth-errors.test.ts","./tests/helpers.test.ts","./vite.config.ts"],"version":"5.9.3"}

@@ -114,3 +114,11 @@ public/icon.svg             PWA icon
 ## Next engineering priorities
 
 This is a functional first implementation, not a claim of production-complete coverage of every brainstormed enhancement. High-priority follow-ups: server-side scheduled notifications (email/push), location autocomplete, multiple photo exports, a richer year scrapbook and statistics dashboard, per-occurrence recurring edits, per-member hidden-surprise controls, offline optimistic sync with conflict resolution, end-to-end authenticated security tests, group member display-name joins, and a true availability-aware Date Jar. These are separately documented rather than silently pretending they work.
+
+## Authentication UX and email provider
+
+Email/password signup explains that verification is required and shows an explicit confirmation screen. This screen supports resending the email after a 60-second cooldown. The cooldown protects against accidental repeated requests but cannot bypass the project-wide mail quota. Authentication errors are presented with actionable messages, including rate-limit and unverified-address explanations. Password recovery leads back to Settings to set a new password.
+
+**Production email:** Supabase's default sender currently has a project-wide limit of 2 emails/hour and only supports the organization team's email addresses. Before inviting other users, configure **Authentication → SMTP Settings** (or Send Email hook) with a provider/domain authorized to send your mail. Leave email confirmation ON. Changing frontend code does not raise this quota.
+
+**Optional Google sign-in:** Configure Google OAuth credentials in Google Cloud, enable **Authentication → Sign In / Providers → Google** in Supabase, set its callback URL to the one supplied by Supabase, and set GitHub Actions repository variable `VITE_ENABLE_GOOGLE_AUTH=true`. Redeploy. Google sign-in is intentionally hidden until configured. Do not enable the flag before the provider is operational.
